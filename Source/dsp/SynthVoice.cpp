@@ -29,6 +29,15 @@ void SynthVoice::startNote (int midiNote, float noteVelocity, juce::SynthesiserS
 
     filterEnvValue = 0.0f;
     firstChunk = true;
+    startStamp.store (++noteCounter, std::memory_order_relaxed);
+}
+
+void SynthVoice::finishNote()
+{
+    ampEnv.reset();
+    filterEnv.reset();
+    liveCutoff.store (-1.0f, std::memory_order_relaxed);
+    clearCurrentNote();
 }
 
 void SynthVoice::stopNote (float, bool allowTailOff)
@@ -40,9 +49,7 @@ void SynthVoice::stopNote (float, bool allowTailOff)
     }
     else
     {
-        ampEnv.reset();
-        filterEnv.reset();
-        clearCurrentNote();
+        finishNote();
     }
 }
 
@@ -94,7 +101,9 @@ void SynthVoice::updateChunk (int lfoIndex)
     const auto maxHz = juce::jmin (20000.0f, (float) sampleRate * 0.45f);
     filter.setType (params.filterType);
     filter.setResonance (params.resonance);
-    filter.setCutoffFrequency (juce::jlimit (20.0f, maxHz, 20.0f * std::exp2 (cutoffSt / 12.0f)));
+    const auto cutoffHz = juce::jlimit (20.0f, maxHz, 20.0f * std::exp2 (cutoffSt / 12.0f));
+    filter.setCutoffFrequency (cutoffHz);
+    liveCutoff.store (cutoffHz, std::memory_order_relaxed);
 }
 
 void SynthVoice::renderNextBlock (juce::AudioBuffer<float>& output, int startSample, int numSamples)
@@ -139,8 +148,7 @@ void SynthVoice::renderNextBlock (juce::AudioBuffer<float>& output, int startSam
 
         if (! ampEnv.isActive())
         {
-            filterEnv.reset();
-            clearCurrentNote();
+            finishNote();
             break;
         }
     }

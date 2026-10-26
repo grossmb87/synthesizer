@@ -44,7 +44,11 @@ namespace
 
     Attr withUnit (const juce::String& unit, int decimals)
     {
-        return Attr().withStringFromValueFunction ([unit, decimals] (float v, int) { return juce::String (v, decimals) + " " + unit; });
+        return Attr().withStringFromValueFunction ([unit, decimals] (float v, int)
+        {
+            // juce::String (v, 0) means "full precision", so whole numbers need rounding.
+            return (decimals == 0 ? juce::String (juce::roundToInt (v)) : juce::String (v, decimals)) + " " + unit;
+        });
     }
 
     template <typename Param, typename... Args>

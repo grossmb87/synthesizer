@@ -31,7 +31,8 @@ target_sources(Synth PRIVATE
     Source/PluginEditor.cpp
     Source/Parameters.cpp
     Source/PresetManager.cpp
-    Source/dsp/SynthVoice.cpp)
+    Source/dsp/SynthVoice.cpp
+    Source/ui/Visualizers.cpp)
 
 target_include_directories(Synth PRIVATE Source)
 

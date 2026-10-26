@@ -9,6 +9,8 @@ A polyphonic subtractive synthesizer, built with [JUCE 9](https://juce.com) as a
 - 2 LFOs (pitch / cutoff / amp / pulse width)
 - Chorus, delay, reverb, and master gain with soft clipping
 - Sustain pedal support and presets
+- Live displays: oscillator waveform, envelope shapes, LFOs with their current phase, oscilloscope, and an FFT spectrum with the filter's response curve at the live cutoff
+- Vertical faders: click to jump, drag, Ctrl+drag for fine adjustment, double-click to reset
 
 ## Build (Windows)
 Requirements: Visual Studio 2022 (Desktop C++) and CMake >= 3.22. JUCE downloads automatically on the first configure.

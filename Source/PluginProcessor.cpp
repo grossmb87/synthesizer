@@ -125,7 +125,30 @@ void SynthAudioProcessor::renderLfos (int numSamples)
 
         for (int s = 0; s < numSamples; ++s)
             lfoBuffers[i][(size_t) s] = lfos[i].process();
+
+        lfoPhase[i].store ((float) lfos[i].getPhase(), std::memory_order_relaxed);
     }
+}
+
+float SynthAudioProcessor::getLiveCutoff() const
+{
+    float cutoffHz = -1.0f;
+    juce::uint32 newest = 0;
+
+    for (int i = 0; i < synth.getNumVoices(); ++i)
+    {
+        if (auto* voice = dynamic_cast<SynthVoice*> (synth.getVoice (i)))
+        {
+            const auto hz = voice->getLiveCutoff();
+            if (hz > 0.0f && voice->getStartStamp() >= newest)
+            {
+                newest = voice->getStartStamp();
+                cutoffHz = hz;
+            }
+        }
+    }
+
+    return cutoffHz;
 }
 
 void SynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
@@ -141,6 +164,7 @@ void SynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
     synth.renderNextBlock (buffer, midi, 0, numSamples);
 
     processEffects (buffer);
+    outputTap.push (buffer);
 }
 
 void SynthAudioProcessor::processEffects (juce::AudioBuffer<float>& buffer)

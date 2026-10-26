@@ -14,6 +14,7 @@ public:
 
     void setWave (Wave w) noexcept    { wave = w; }
     void setRate (float hz) noexcept  { increment = hz / sampleRate; }
+    double getPhase() const noexcept  { return phase; }
 
     float process() noexcept
     {

@@ -46,8 +46,18 @@ public:
     void controllerMoved (int, int) override {}
     void renderNextBlock (juce::AudioBuffer<float>&, int startSample, int numSamples) override;
 
+    // For the UI: modulated cutoff while sounding (-1 when idle), and a
+    // stamp that orders voices by when they were started.
+    float getLiveCutoff() const noexcept       { return liveCutoff.load (std::memory_order_relaxed); }
+    juce::uint32 getStartStamp() const noexcept { return startStamp.load (std::memory_order_relaxed); }
+
 private:
     void updateChunk (int lfoIndex);
+    void finishNote();
+
+    static inline std::atomic<juce::uint32> noteCounter { 0 };
+    std::atomic<float> liveCutoff { -1.0f };
+    std::atomic<juce::uint32> startStamp { 0 };
 
     static constexpr int chunkSize = 32;
 

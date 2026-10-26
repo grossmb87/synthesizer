@@ -1,9 +1,11 @@
 #pragma once
 
 #include "PluginProcessor.h"
-#include "ui/Knob.h"
+#include "ui/Controls.h"
+#include "ui/Visualizers.h"
 
-class SynthAudioProcessorEditor : public juce::AudioProcessorEditor
+class SynthAudioProcessorEditor : public juce::AudioProcessorEditor,
+                                  private juce::Timer
 {
 public:
     explicit SynthAudioProcessorEditor (SynthAudioProcessor&);
@@ -13,6 +15,7 @@ public:
     void resized() override;
 
 private:
+    void timerCallback() override;
     void buildSections();
     void refreshPresetList();
     void presetChosen();
@@ -25,6 +28,13 @@ private:
     SynthLookAndFeel lookAndFeel;
 
     std::vector<std::vector<std::unique_ptr<Section>>> rows;
+
+    std::vector<float> outputHistory = std::vector<float> (8192); // newest samples of the output
+    WaveformView waveformView { processor.apvts };
+    EnvelopeView envelopeView { processor.apvts };
+    LfoView lfoView { processor };
+    ScopeView scopeView { outputHistory };
+    SpectrumView spectrumView { processor };
 
     juce::ComboBox presetBox;
     juce::TextButton saveButton { "Save" }, deleteButton { "Delete" };

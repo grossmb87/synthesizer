@@ -11,6 +11,25 @@ namespace Colours
     inline const juce::Colour dimText    { 0xff8a93a5 };
     inline const juce::Colour accent     { 0xfff0a35e };
     inline const juce::Colour track      { 0xff3b4252 };
+    inline const juce::Colour secondary  { 0xff6cb6e8 };
+    inline const juce::Colour grid       { 0xff2a2f39 };
+    inline const juce::Colour display    { 0xff111318 };
+}
+
+// Rounded panel with an upper-case title; returns the area below the title.
+inline juce::Rectangle<int> drawPanel (juce::Graphics& g, juce::Rectangle<int> bounds, const juce::String& title)
+{
+    const auto r = bounds.toFloat().reduced (3.0f);
+    g.setColour (Colours::panel);
+    g.fillRoundedRectangle (r, 8.0f);
+    g.setColour (Colours::outline);
+    g.drawRoundedRectangle (r, 8.0f, 1.0f);
+
+    g.setColour (Colours::accent);
+    g.setFont (juce::FontOptions (13.0f, juce::Font::bold));
+    g.drawText (title.toUpperCase(), r.reduced (10.0f, 4.0f).removeFromTop (18.0f), juce::Justification::left);
+
+    return bounds.reduced (8).withTrimmedTop (20);
 }
 
 class SynthLookAndFeel : public juce::LookAndFeel_V4
@@ -33,44 +52,44 @@ public:
         setColour (juce::ToggleButton::textColourId, Colours::dimText);
     }
 
-    void drawRotarySlider (juce::Graphics& g, int x, int y, int width, int height, float pos,
-                           float startAngle, float endAngle, juce::Slider&) override
+    void drawLinearSlider (juce::Graphics& g, int x, int y, int width, int height, float sliderPos,
+                           float, float, juce::Slider::SliderStyle, juce::Slider& slider) override
     {
-        const auto bounds = juce::Rectangle<int> (x, y, width, height).toFloat().reduced (4.0f);
-        const auto radius = juce::jmin (bounds.getWidth(), bounds.getHeight()) / 2.0f;
-        const auto centre = bounds.getCentre();
-        const auto angle = startAngle + pos * (endAngle - startAngle);
-        const auto stroke = 3.5f;
+        const auto bounds = juce::Rectangle<int> (x, y, width, height).toFloat();
+        const auto centreX = bounds.getCentreX();
+        const auto trackWidth = 6.0f;
+        const auto track = juce::Rectangle<float> (trackWidth, bounds.getHeight()).withCentre (bounds.getCentre());
 
-        juce::Path track;
-        track.addCentredArc (centre.x, centre.y, radius - stroke, radius - stroke, 0.0f, startAngle, endAngle, true);
         g.setColour (Colours::track);
-        g.strokePath (track, juce::PathStrokeType (stroke, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        g.fillRoundedRectangle (track, trackWidth / 2.0f);
 
-        juce::Path value;
-        value.addCentredArc (centre.x, centre.y, radius - stroke, radius - stroke, 0.0f, startAngle, angle, true);
+        // Bipolar parameters fill from zero, the rest from the bottom.
+        const auto bipolar = slider.getMinimum() < 0.0 && slider.getMaximum() > 0.0;
+        const auto originY = bipolar ? (float) slider.getPositionOfValue (0.0) : track.getBottom();
         g.setColour (Colours::accent);
-        g.strokePath (value, juce::PathStrokeType (stroke, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        g.fillRoundedRectangle (juce::Rectangle<float> (track.getX(), juce::jmin (originY, sliderPos),
+                                                        trackWidth, std::abs (originY - sliderPos)), trackWidth / 2.0f);
 
-        const auto knobRadius = radius - stroke * 2.5f;
-        g.setColour (Colours::panel.brighter (0.15f));
-        g.fillEllipse (juce::Rectangle<float> (knobRadius * 2.0f, knobRadius * 2.0f).withCentre (centre));
-
-        const auto tip = centre.getPointOnCircumference (knobRadius * 0.8f, angle);
-        g.setColour (Colours::text);
-        g.drawLine ({ centre.getPointOnCircumference (knobRadius * 0.25f, angle), tip }, 2.0f);
+        const auto thumb = juce::Rectangle<float> (juce::jmin (28.0f, bounds.getWidth() - 4.0f), 12.0f)
+                               .withCentre ({ centreX, sliderPos });
+        g.setColour (slider.isMouseOverOrDragging() ? Colours::text : Colours::panel.brighter (0.4f));
+        g.fillRoundedRectangle (thumb, 3.0f);
+        g.setColour (Colours::background);
+        g.drawHorizontalLine ((int) sliderPos, thumb.getX() + 4.0f, thumb.getRight() - 4.0f);
     }
 };
 
-// Rotary slider with a caption, bound to one parameter.
-class Knob : public juce::Component
+// Vertical fader with a caption, bound to one parameter. Click anywhere on
+// the track to jump there; double-click resets to the default.
+class Fader : public juce::Component
 {
 public:
-    Knob (juce::AudioProcessorValueTreeState& apvts, const juce::String& paramId, const juce::String& caption)
+    Fader (juce::AudioProcessorValueTreeState& apvts, const juce::String& paramId, const juce::String& caption)
     {
-        slider.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
+        slider.setSliderStyle (juce::Slider::LinearVertical);
         slider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 70, 16);
-        slider.setPopupDisplayEnabled (false, false, nullptr);
+        slider.setSliderSnapsToMousePosition (true);
+        slider.setMouseDragSensitivity (150);
         addAndMakeVisible (slider);
 
         label.setText (caption, juce::dontSendNotification);
@@ -79,6 +98,9 @@ public:
         addAndMakeVisible (label);
 
         attachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (apvts, paramId, slider);
+
+        if (auto* param = apvts.getParameter (paramId))
+            slider.setDoubleClickReturnValue (true, param->convertFrom0to1 (param->getDefaultValue()));
     }
 
     void resized() override
@@ -158,23 +180,11 @@ public:
 
     int getNumControls() const { return (int) controls.size(); }
 
-    void paint (juce::Graphics& g) override
-    {
-        const auto r = getLocalBounds().toFloat().reduced (3.0f);
-        g.setColour (Colours::panel);
-        g.fillRoundedRectangle (r, 8.0f);
-        g.setColour (Colours::outline);
-        g.drawRoundedRectangle (r, 8.0f, 1.0f);
-
-        g.setColour (Colours::accent);
-        g.setFont (juce::FontOptions (13.0f, juce::Font::bold));
-        g.drawText (title.toUpperCase(), r.reduced (10.0f, 4.0f).removeFromTop (18.0f), juce::Justification::left);
-    }
+    void paint (juce::Graphics& g) override { drawPanel (g, getLocalBounds(), title); }
 
     void resized() override
     {
-        auto r = getLocalBounds().reduced (8);
-        r.removeFromTop (20);
+        auto r = getLocalBounds().reduced (8).withTrimmedTop (20);
 
         if (controls.empty())
             return;

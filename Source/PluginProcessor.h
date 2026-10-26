@@ -4,6 +4,7 @@
 #include <juce_audio_utils/juce_audio_utils.h>
 #include <juce_dsp/juce_dsp.h>
 #include "Parameters.h"
+#include "AudioTap.h"
 #include "PresetManager.h"
 #include "dsp/Lfo.h"
 #include "dsp/SynthVoice.h"
@@ -36,9 +37,14 @@ public:
     void getStateInformation (juce::MemoryBlock& destData) override;
     void setStateInformation (const void* data, int sizeInBytes) override;
 
+    // Visualisation feeds, read from the message thread.
+    float getLiveCutoff() const;                       // newest sounding voice, -1 if silent
+    float getLfoPhase (int index) const noexcept { return lfoPhase[index].load (std::memory_order_relaxed); }
+
     juce::AudioProcessorValueTreeState apvts { *this, nullptr, "Parameters", createParameterLayout() };
     juce::MidiKeyboardState keyboardState;
     PresetManager presets { apvts };
+    AudioTap outputTap;
 
 private:
     static constexpr int numVoices = 24;
@@ -67,6 +73,7 @@ private:
     VoiceParams voiceParams;
     Lfo lfos[2];
     std::vector<float> lfoBuffers[2];
+    std::atomic<float> lfoPhase[2] {};
 
     juce::dsp::Chorus<float> chorus;
     juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Linear> delayLine { 192000 };
