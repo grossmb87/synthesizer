@@ -53,8 +53,14 @@ public:
     }
 
     void drawLinearSlider (juce::Graphics& g, int x, int y, int width, int height, float sliderPos,
-                           float, float, juce::Slider::SliderStyle, juce::Slider& slider) override
+                           float minPos, float maxPos, juce::Slider::SliderStyle style, juce::Slider& slider) override
     {
+        if (slider.isBar()) // e.g. the BPM field: keep the stock look
+        {
+            LookAndFeel_V4::drawLinearSlider (g, x, y, width, height, sliderPos, minPos, maxPos, style, slider);
+            return;
+        }
+
         const auto bounds = juce::Rectangle<int> (x, y, width, height).toFloat();
         const auto centreX = bounds.getCentreX();
         const auto trackWidth = 6.0f;

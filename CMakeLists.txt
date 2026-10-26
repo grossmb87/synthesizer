@@ -31,10 +31,20 @@ target_sources(Synth PRIVATE
     Source/PluginEditor.cpp
     Source/Parameters.cpp
     Source/PresetManager.cpp
+    Source/Looper.cpp
+    Source/dsp/SynthEngine.cpp
     Source/dsp/SynthVoice.cpp
+    Source/ui/LooperPanel.cpp
     Source/ui/Visualizers.cpp)
 
 target_include_directories(Synth PRIVATE Source)
+
+# Headless looper tests: cmake --build build --config Release --target LooperTest
+juce_add_console_app(LooperTest PRODUCT_NAME "LooperTest")
+target_sources(LooperTest PRIVATE Tests/LooperTest.cpp Source/Looper.cpp)
+target_include_directories(LooperTest PRIVATE Source)
+target_compile_definitions(LooperTest PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+target_link_libraries(LooperTest PRIVATE juce::juce_audio_basics PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
 
 target_compile_definitions(Synth PUBLIC
     JUCE_WEB_BROWSER=0

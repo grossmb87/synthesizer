@@ -10,6 +10,7 @@ A polyphonic subtractive synthesizer, built with [JUCE 9](https://juce.com) as a
 - Chorus, delay, reverb, and master gain with soft clipping
 - Sustain pedal support and presets
 - Live displays: oscillator waveform, envelope shapes, LFOs with their current phase, oscilloscope, and an FFT spectrum with the filter's response curve at the live cutoff
+- 4-track MIDI looper. Each track has its own sound, and there's tempo, bar length, a 1-bar count-in and a metronome
 - Vertical faders: click to jump, drag, Ctrl+drag for fine adjustment, double-click to reset
 
 ## Build (Windows)
@@ -26,3 +27,14 @@ The standalone app is written to `build/Synth_artefacts/Release/Standalone/Synth
 1. Connect the piano's **USB TO HOST** port to the PC. No driver is needed.
 2. Start the standalone app and open **Options → Audio/MIDI Settings**.
 3. Enable the piano as a MIDI input and choose an audio output (ASIO or WASAPI, 128–256 samples).
+
+## Looper
+- **Click a track** to select it. The faders and presets then edit that track's sound, and the keyboard plays it.
+- **Left pedal (soft pedal) or the Rec button:**
+  - On an empty track it starts a 1-bar count-in, then records one loop. If the loop is already running, recording starts immediately.
+  - While recording, it stops recording early.
+  - On a playing track it toggles overdub on and off.
+  - Holding it for 1 second clears the selected track.
+- **M** mutes a track, **X** clears it, and **Clear All** clears every track. Tempo and bar count are locked once something has been recorded.
+- The effects (chorus, delay, reverb, master) are shared by all tracks.
+- Tests: `cmake --build build --config Release --target LooperTest`, then run `build/LooperTest_artefacts/Release/LooperTest.exe`.

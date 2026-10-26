@@ -28,11 +28,19 @@ SynthAudioProcessorEditor::SynthAudioProcessorEditor (SynthAudioProcessor& p)
     for (auto* view : std::initializer_list<juce::Component*> { &waveformView, &envelopeView, &lfoView, &scopeView, &spectrumView })
         addAndMakeVisible (view);
 
+    looperPanel.onTrackSelected = [this] { refreshPresetList(); };
+    addAndMakeVisible (looperPanel);
+
     refreshPresetList();
 
+    // Fit the default size to the screen (minus taskbar and window title).
+    auto height = 1020;
+    if (const auto* display = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay())
+        height = juce::jlimit (780, 1020, (int) display->userBounds.getHeight() - 40);
+
     setResizable (true, true);
-    setResizeLimits (1000, 760, 2400, 1600);
-    setSize (1200, 940);
+    setResizeLimits (1000, 780, 2400, 1600);
+    setSize (1200, height);
     startTimerHz (30);
 }
 
@@ -53,6 +61,7 @@ void SynthAudioProcessorEditor::timerCallback()
     lfoView.repaint();
     scopeView.repaint();
     spectrumView.repaint();
+    looperPanel.update();
 }
 
 void SynthAudioProcessorEditor::buildSections()
@@ -241,13 +250,15 @@ void SynthAudioProcessorEditor::resized()
     keyboard.setKeyWidth ((float) keyboard.getWidth() / 52.0f); // 52 white keys
     r.removeFromBottom (4);
 
+    looperPanel.setBounds (r.removeFromTop (84));
+
     juce::FlexBox displays;
     displays.items.add (juce::FlexItem (waveformView).withFlex (1.0f));
     displays.items.add (juce::FlexItem (envelopeView).withFlex (1.0f));
     displays.items.add (juce::FlexItem (lfoView).withFlex (1.0f));
     displays.items.add (juce::FlexItem (scopeView).withFlex (1.3f));
     displays.items.add (juce::FlexItem (spectrumView).withFlex (1.8f));
-    displays.performLayout (r.removeFromTop (juce::jlimit (160, 320, r.getHeight() / 5)));
+    displays.performLayout (r.removeFromTop (juce::jlimit (140, 320, r.getHeight() / 5)));
 
     const auto rowHeight = r.getHeight() / (int) rows.size();
     for (auto& row : rows)

@@ -2,6 +2,7 @@
 
 #include "PluginProcessor.h"
 #include "ui/Controls.h"
+#include "ui/LooperPanel.h"
 #include "ui/Visualizers.h"
 
 class SynthAudioProcessorEditor : public juce::AudioProcessorEditor,
@@ -35,6 +36,7 @@ private:
     LfoView lfoView { processor };
     ScopeView scopeView { outputHistory };
     SpectrumView spectrumView { processor };
+    LooperPanel looperPanel { processor };
 
     juce::ComboBox presetBox;
     juce::TextButton saveButton { "Save" }, deleteButton { "Delete" };

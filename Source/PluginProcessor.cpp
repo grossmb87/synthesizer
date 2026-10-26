@@ -1,40 +1,43 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
-#include "dsp/SynthSound.h"
+
+namespace
+{
+    bool isEffectParameter (const juce::String& id)
+    {
+        return id.startsWith ("chorus") || id.startsWith ("delay") || id.startsWith ("reverb") || id == ParamID::masterGain;
+    }
+}
 
 SynthAudioProcessor::SynthAudioProcessor()
     : AudioProcessor (BusesProperties().withOutput ("Output", juce::AudioChannelSet::stereo(), true))
 {
-    cacheParameters();
+    for (auto* p : getParameters())
+        if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*> (p))
+            if (! isEffectParameter (ranged->getParameterID()))
+            {
+                soundParams.push_back (ranged);
+                liveValues.push_back (param (ranged->getParameterID()));
+            }
 
-    for (int i = 0; i < numVoices; ++i)
-        synth.addVoice (new SynthVoice (voiceParams));
-    synth.addSound (new SynthSound());
-}
-
-void SynthAudioProcessor::cacheParameters()
-{
-    for (int i = 0; i < 2; ++i)
+    for (int t = 0; t < numTracks; ++t)
     {
-        oscP[i] = { param (ParamID::oscWave (i + 1)), param (ParamID::oscOctave (i + 1)), param (ParamID::oscSemi (i + 1)),
-                    param (ParamID::oscFine (i + 1)), param (ParamID::oscPW (i + 1)), param (ParamID::oscLevel (i + 1)) };
-        lfoP[i] = { param (ParamID::lfoWave (i + 1)), param (ParamID::lfoRate (i + 1)),
-                    param (ParamID::lfoDepth (i + 1)), param (ParamID::lfoDest (i + 1)) };
+        trackSounds[(size_t) t] = std::vector<std::atomic<float>> (soundParams.size());
+        copyLiveSoundTo (t);
+        trackSoundNames[(size_t) t] = presets.getCurrentPresetName();
+
+        auto lookup = [this, t] (const juce::String& id) -> std::atomic<float>*
+        {
+            for (size_t i = 0; i < soundParams.size(); ++i)
+                if (soundParams[i]->getParameterID() == id)
+                    return &trackSounds[(size_t) t][i];
+            jassertfalse; // not a sound parameter
+            return nullptr;
+        };
+        engines[(size_t) t] = std::make_unique<SynthEngine> (lookup);
     }
 
-    sync = param (ParamID::osc2Sync);
-    noise = param (ParamID::noiseLevel);
-
-    filterType = param (ParamID::filterType);
-    cutoff     = param (ParamID::filterCutoff);
-    reso       = param (ParamID::filterReso);
-    envAmt     = param (ParamID::filterEnvAmt);
-    keyTrack   = param (ParamID::filterKeyTrack);
-    filterVel  = param (ParamID::filterVelocity);
-
-    fA = param (ParamID::fAttack);  fD = param (ParamID::fDecay);  fS = param (ParamID::fSustain);  fR = param (ParamID::fRelease);
-    aA = param (ParamID::aAttack);  aD = param (ParamID::aDecay);  aS = param (ParamID::aSustain);  aR = param (ParamID::aRelease);
-    ampVel = param (ParamID::ampVelocity);
+    looper.onSilenceTrack = [this] (int t) { engines[(size_t) t]->allNotesOff (2); };
 
     chorusRate = param (ParamID::chorusRate);  chorusDepth = param (ParamID::chorusDepth);  chorusMix = param (ParamID::chorusMix);
     delayTime = param (ParamID::delayTime);    delayFeedback = param (ParamID::delayFeedback);  delayMix = param (ParamID::delayMix);
@@ -44,16 +47,12 @@ void SynthAudioProcessor::cacheParameters()
 
 void SynthAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
-    synth.setCurrentPlaybackSampleRate (sampleRate);
-    for (int i = 0; i < synth.getNumVoices(); ++i)
-        if (auto* voice = dynamic_cast<SynthVoice*> (synth.getVoice (i)))
-            voice->prepare (sampleRate, samplesPerBlock);
-
-    for (int i = 0; i < 2; ++i)
+    for (int t = 0; t < numTracks; ++t)
     {
-        lfos[i].prepare (sampleRate);
-        lfoBuffers[i].assign ((size_t) samplesPerBlock, 0.0f);
+        engines[(size_t) t]->prepare (sampleRate, samplesPerBlock);
+        trackMidi[(size_t) t].ensureSize (4096);
     }
+    looper.prepare (sampleRate);
 
     const juce::dsp::ProcessSpec spec { sampleRate, (juce::uint32) samplesPerBlock, (juce::uint32) getTotalNumOutputChannels() };
 
@@ -78,79 +77,51 @@ bool SynthAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) co
     return out == juce::AudioChannelSet::mono() || out == juce::AudioChannelSet::stereo();
 }
 
-void SynthAudioProcessor::updateVoiceParams()
+//==============================================================================
+void SynthAudioProcessor::copyLiveSoundTo (int track)
 {
-    auto& p = voiceParams;
-
-    for (int i = 0; i < 2; ++i)
-    {
-        p.osc[i].wave = (Oscillator::Wave) (int) oscP[i].wave->load();
-        p.osc[i].semitoneOffset = oscP[i].octave->load() * 12.0f + oscP[i].semi->load() + oscP[i].fine->load() / 100.0f;
-        p.osc[i].pulseWidth = oscP[i].pw->load();
-        p.osc[i].level = oscP[i].level->load();
-    }
-    p.sync = sync->load() > 0.5f;
-    p.noiseLevel = noise->load();
-
-    using FT = juce::dsp::StateVariableTPTFilterType;
-    constexpr FT types[] { FT::lowpass, FT::highpass, FT::bandpass };
-    p.filterType = types[juce::jlimit (0, 2, (int) filterType->load())];
-    p.cutoffHz = cutoff->load();
-    p.resonance = 0.707f * std::pow (12.0f / 0.707f, reso->load()); // Q from 0.707 to 12
-    p.envAmount = envAmt->load();
-    p.keyTrack = keyTrack->load();
-    p.filterVelocity = filterVel->load();
-
-    p.filterEnv = { fA->load(), fD->load(), fS->load(), fR->load() };
-    p.ampEnv = { aA->load(), aD->load(), aS->load(), aR->load() };
-    p.ampVelocity = ampVel->load();
-
-    for (int i = 0; i < 2; ++i)
-    {
-        p.lfo[i] = lfoBuffers[i].data();
-        p.lfoDest[i] = (LfoDest) (int) lfoP[i].dest->load();
-        p.lfoDepth[i] = lfoP[i].depth->load();
-    }
+    auto& values = trackSounds[(size_t) track];
+    for (size_t i = 0; i < values.size(); ++i)
+        values[i].store (liveValues[i]->load(), std::memory_order_relaxed);
 }
 
-void SynthAudioProcessor::renderLfos (int numSamples)
+void SynthAudioProcessor::selectTrack (int track)
 {
-    for (int i = 0; i < 2; ++i)
+    const auto previous = selectedTrack.load();
+    if (track == previous || track < 0 || track >= numTracks)
+        return;
+
+    // Detach the APVTS from every track while it is being reloaded.
+    selectedTrack.store (-1);
+    if (previous >= 0)
     {
-        if ((int) lfoBuffers[i].size() < numSamples)
-            lfoBuffers[i].resize ((size_t) numSamples); // only if the host exceeds the announced block size
-
-        lfos[i].setWave ((Lfo::Wave) (int) lfoP[i].wave->load());
-        lfos[i].setRate (lfoP[i].rate->load());
-
-        for (int s = 0; s < numSamples; ++s)
-            lfoBuffers[i][(size_t) s] = lfos[i].process();
-
-        lfoPhase[i].store ((float) lfos[i].getPhase(), std::memory_order_relaxed);
-    }
-}
-
-float SynthAudioProcessor::getLiveCutoff() const
-{
-    float cutoffHz = -1.0f;
-    juce::uint32 newest = 0;
-
-    for (int i = 0; i < synth.getNumVoices(); ++i)
-    {
-        if (auto* voice = dynamic_cast<SynthVoice*> (synth.getVoice (i)))
-        {
-            const auto hz = voice->getLiveCutoff();
-            if (hz > 0.0f && voice->getStartStamp() >= newest)
-            {
-                newest = voice->getStartStamp();
-                cutoffHz = hz;
-            }
-        }
+        copyLiveSoundTo (previous);
+        trackSoundNames[(size_t) previous] = presets.getCurrentPresetName();
     }
 
-    return cutoffHz;
+    const auto& values = trackSounds[(size_t) track];
+    for (size_t i = 0; i < soundParams.size(); ++i)
+        soundParams[i]->setValueNotifyingHost (soundParams[i]->convertTo0to1 (values[i].load()));
+    presets.setCurrentPresetName (trackSoundNames[(size_t) track]);
+
+    selectedTrack.store (track);
 }
 
+juce::String SynthAudioProcessor::getTrackSoundName (int track) const
+{
+    return track == selectedTrack.load() ? presets.getCurrentPresetName() : trackSoundNames[(size_t) track];
+}
+
+int SynthAudioProcessor::displayTrack() const
+{
+    const auto t = selectedTrack.load();
+    return t >= 0 ? t : 0;
+}
+
+float SynthAudioProcessor::getLiveCutoff() const     { return engines[(size_t) displayTrack()]->getLiveCutoff(); }
+float SynthAudioProcessor::getLfoPhase (int i) const { return engines[(size_t) displayTrack()]->getLfoPhase (i); }
+
+//==============================================================================
 void SynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
     juce::ScopedNoDenormals noDenormals;
@@ -159,11 +130,27 @@ void SynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
     buffer.clear();
     keyboardState.processNextMidiBuffer (midi, 0, numSamples, true);
 
-    renderLfos (numSamples);
-    updateVoiceParams();
-    synth.renderNextBlock (buffer, midi, 0, numSamples);
+    if (const auto selected = selectedTrack.load(); selected >= 0)
+    {
+        copyLiveSoundTo (selected);
+
+        if (selected != audioSelectedTrack)
+        {
+            engines[(size_t) audioSelectedTrack]->allNotesOff (1); // live notes stay on the old track otherwise
+            looper.selectionChanged (audioSelectedTrack);
+            audioSelectedTrack = selected;
+        }
+    }
+
+    for (auto& m : trackMidi)
+        m.clear();
+    looper.process (midi, trackMidi, numSamples, audioSelectedTrack);
+
+    for (int t = 0; t < numTracks; ++t)
+        engines[(size_t) t]->render (buffer, trackMidi[(size_t) t], numSamples);
 
     processEffects (buffer);
+    looper.renderClicks (buffer);
     outputTap.push (buffer);
 }
 

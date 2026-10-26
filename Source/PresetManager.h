@@ -18,6 +18,7 @@ public:
     bool deleteUserPreset (const juce::String& name);
 
     juce::String getCurrentPresetName() const;
+    void setCurrentPresetName (const juce::String&);
 
     static juce::File getUserPresetDirectory();
 
@@ -34,7 +35,6 @@ private:
         std::vector<Value> values; // everything not listed uses its default
     };
 
-    void setCurrentPresetName (const juce::String&);
     juce::File fileFor (const juce::String& name) const;
 
     juce::AudioProcessorValueTreeState& apvts;
